@@ -1,0 +1,6 @@
+WIFI_SSID = "Wokwi-GUEST"
+WIFI_PASS = ""
+
+AIO_USER = "thuan123"
+AIO_KEY  = "aio_rHyZ26WPq441ObxJTy0uLUotRYIZ"  
+AIO_HOST = "io.adafruit.com"

@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Giám sát rò rỉ khí gas - Dashboard</title>
+<style>
+  :root {
+    --bg: #f4f6f9; --card: #ffffff; --text: #1c2430; --muted: #6b7686; --line: #dfe4ea;
+    --safe: #1e9e5a; --warn: #e49b0f; --danger: #d93a3a; --accent: #2f6fed;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #11151b; --card: #1b212a; --text: #e8ecf1; --muted: #98a3b3; --line: #2b3441;
+            --safe: #34c77b; --warn: #f2b53a; --danger: #ff5c5c; --accent: #6b9bff; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         background: var(--bg); color: var(--text); }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+           padding: 16px 20px; border-bottom: 1px solid var(--line); background: var(--card); flex-wrap: wrap; }
+  h1 { font-size: 18px; margin: 0; }
+  .conn { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--safe); } .dot.err { background: var(--danger); }
+  main { max-width: 1000px; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }
+  .banner { display: none; padding: 14px 16px; border-radius: 10px; font-weight: 600;
+            background: var(--danger); color: #fff; }
+  .banner.show { display: block; animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .65; } }
+  .grid3 { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .card h2 { font-size: 13px; margin: 0 0 10px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .big { font-size: 34px; font-weight: 700; }
+  .badge { display: inline-block; padding: 6px 14px; border-radius: 999px; font-weight: 700; font-size: 20px; color: #fff; background: var(--muted); }
+  .badge.SAFE { background: var(--safe); } .badge.WARNING { background: var(--warn); } .badge.DANGER { background: var(--danger); }
+  .sub { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  svg.gauge { width: 100%; max-width: 240px; display: block; margin: 0 auto; }
+  canvas { width: 100%; height: 240px; display: block; }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; }
+  button { font: inherit; font-weight: 600; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--line);
+           background: var(--card); color: var(--text); cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+  button.safe { background: var(--safe); color: #fff; border-color: var(--safe); }
+  button.reset { background: var(--warn); color: #1c1c1c; border-color: var(--warn); }
+  button:disabled { opacity: .5; cursor: wait; }
+  details { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; }
+  summary { cursor: pointer; font-weight: 600; }
+  .form { display: grid; gap: 10px; margin-top: 12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  label { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
+  input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  .warnbox { font-size: 12px; color: var(--warn); margin-top: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td, th { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  .msg { font-size: 13px; color: var(--muted); min-height: 18px; }
+  .msg.err { color: var(--danger); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🔥 Hệ thống giám sát &amp; cảnh báo rò rỉ khí gas</h1>
+  <div class="conn"><span class="dot" id="dot"></span><span id="connText">Chưa kết nối</span></div>
+</header>
+
+<main>
+  <details id="settings" open>
+    <summary>⚙️ Cài đặt kết nối Adafruit IO</summary>
+    <div class="form">
+      <label>Username<input id="user" placeholder="thuan123" autocomplete="off"></label>
+      <label>AIO Key<input id="key" type="password" placeholder="Dán key mới vào đây" autocomplete="off"></label>
+      <label>Ngưỡng WARNING (đồng bộ các trạm)<input id="thWarn" type="number" value="1500" readonly></label>
+      <label>Ngưỡng DANGER (đồng bộ các trạm)<input id="thDanger" type="number" value="2800" readonly></label>
+    </div>
+    <div class="controls" style="margin-top:12px">
+      <button id="btnConnect" class="safe">Kết nối</button>
+      <button id="btnDisconnect">Ngắt</button>
+    </div>
+    <div class="sub">Username được nhớ trên máy. AIO Key chỉ giữ trong bộ nhớ của tab, cần nhập lại khi mở trang.</div>
+  </details>
+
+  <div class="banner" id="banner" role="alert">⚠️ CẢNH BÁO NGUY HIỂM: Số đo gas ở mức DANGER. Kiểm tra phản hồi van bên dưới.</div>
+  <div class="msg" id="dataState" role="status" aria-live="polite">Chưa nhận dữ liệu trạm 1.</div>
+
+  <div class="grid3">
+    <div class="card">
+      <h2>Nồng độ khí gas (ADC)</h2>
+      <svg class="gauge" viewBox="0 0 200 120">
+        <path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="var(--line)" stroke-width="16" stroke-linecap="round"/>
+        <path id="gaugeArc" d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="var(--safe)" stroke-width="16"
+              stroke-linecap="round" stroke-dasharray="0 251.3"/>
+        <text id="gaugeText" x="100" y="92" text-anchor="middle" font-size="30" font-weight="700" fill="var(--text)">--</text>
+        <text x="100" y="112" text-anchor="middle" font-size="11" fill="var(--muted)">0 – 4095</text>
+      </svg>
+      <div class="sub" id="lastUpdate">Cập nhật: --</div>
+    </div>
+    <div class="card">
+      <h2>Trạng thái cảnh báo</h2>
+      <span class="badge" id="status">--</span>
+      <div class="sub">Tính từ <b>sensor-data</b>, cùng ngưỡng trạm 1–3</div>
+    </div>
+    <div class="card">
+      <h2>Van gas</h2>
+      <div class="big" id="valve">--</div>
+      <div class="sub">Từ feed <b>control-valve</b></div>
+      <div class="sub" id="valveUpdate">Chưa có phản hồi trạm 3.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Biểu đồ 30 giá trị gần nhất</h2>
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div class="card">
+    <h2>Điều khiển từ xa</h2>
+    <div class="controls">
+      <button id="btnClose" class="danger" disabled>Đóng van gas</button>
+      <button id="btnOpen" class="safe" disabled>Mở van gas</button>
+      <button id="btnReset" class="reset" disabled>Khởi động lại trạm 1–3</button>
+    </div>
+    <div class="msg" id="msg" role="status" aria-live="polite"></div>
+    <div class="sub" id="controlHint" role="status" aria-live="polite">Nhập Username, AIO Key rồi bấm Kết nối ở phần cài đặt phía trên.</div>
+    <div class="sub" id="commandState">Kết nối để sử dụng nút đóng/mở van.</div>
+    <div class="sub">Đóng van: giữ 90° đến khi bấm Mở van. Mở van: về 0° khi dữ liệu còn mới và gas chưa ở DANGER. Quạt và cảnh báo vẫn chạy theo gas; DANGER luôn đóng van. Phản hồi van có thể trễ đến 10 giây.</div>
+    <div class="sub" id="resetUpdate">Chưa có thông tin lệnh khởi động lại.</div>
+  </div>
+
+  <div class="card">
+    <h2>Lịch sử thay đổi trạng thái</h2>
+    <table>
+      <thead><tr><th>Thời gian</th><th>Trạng thái</th><th>Giá trị gas</th></tr></thead>
+      <tbody id="log"><tr><td colspan="3" style="color:var(--muted)">Chưa có dữ liệu</td></tr></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+const API = "https://io.adafruit.com/api/v2/";
+const POLL_MS = 5000;
+const DATA_TIMEOUT_MS = 20000;
+const THRESHOLD_WARNING = 1500;
+const THRESHOLD_DANGER = 2800;
+const $ = id => document.getElementById(id);
+
+let timer = null, session = 0, activeConfig = null, sessionAbort = null;
+let refreshingSession = null, connected = false, busy = false, resetAvailable = false, commandAvailable = false;
+let lastSensor = null, lastStatus = null, history = [], logRows = [];
+let resetCooldownUntil = 0;
+let sensorHealthy = false;
+
+function getStatus(value) {
+  return value >= THRESHOLD_DANGER ? "DANGER" : value >= THRESHOLD_WARNING ? "WARNING" : "SAFE";
+}
+function parseADC(value) {
+  const text = String(value).trim();
+  if (!/^\d+$/.test(text)) return null;
+  const number = Number(text);
+  return Number.isInteger(number) && number >= 0 && number <= 4095 ? number : null;
+}
+function isFresh(point, now = Date.now()) {
+  if (!point) return false;
+  const age = now - Date.parse(point.created_at);
+  return Number.isFinite(age) && age >= -5000 && age < DATA_TIMEOUT_MS;
+}
+function loadCfg() {
+  try {
+    $("user").value = localStorage.getItem("gas_user") || "";
+    localStorage.removeItem("gas_key");
+    localStorage.removeItem("gas_warn");
+    localStorage.removeItem("gas_danger");
+  } catch (_) {}
+  $("thWarn").value = THRESHOLD_WARNING;
+  $("thDanger").value = THRESHOLD_DANGER;
+}
+function saveCfg() {
+  try { localStorage.setItem("gas_user", $("user").value.trim()); } catch (_) {}
+}
+
+async function aio(path, opts = {}, cfg = activeConfig) {
+  if (!cfg) throw new Error("Hãy kết nối trước.");
+  const controller = new AbortController();
+  const relayAbort = () => controller.abort();
+  const signal = cfg.signal;
+  if (signal.aborted) controller.abort();
+  else signal.addEventListener("abort", relayAbort, { once: true });
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const res = await fetch(API + encodeURIComponent(cfg.user) + path, {
+      ...opts, signal: controller.signal, cache: "no-store",
+      headers: { "X-AIO-Key": cfg.key, "Content-Type": "application/json" }
+    });
+    if (!res.ok) {
+      const error = new Error(res.status === 401 || res.status === 403 ? "Sai Username hoặc AIO Key." :
+        res.status === 429 ? "Adafruit IO đang giới hạn tốc độ. Đợi một phút rồi thử lại." :
+        res.status === 404 ? "Chưa có feed " + path.split("/")[2] + " trên Adafruit IO." :
+        "Lỗi HTTP " + res.status);
+      error.status = res.status;
+      throw error;
+    }
+    return await res.json();
+  } finally {
+    clearTimeout(timeout);
+    signal.removeEventListener("abort", relayAbort);
+  }
+}
+const publish = (feed, value, cfg) =>
+  aio("/feeds/" + feed + "/data", { method: "POST", body: JSON.stringify({ value }) }, cfg);
+
+function setConn(ok, text) {
+  connected = ok;
+  $("dot").className = "dot " + (ok ? "ok" : "err");
+  $("connText").textContent = text;
+  updateControls();
+}
+function say(text, err = false) {
+  $("msg").textContent = text;
+  $("msg").className = "msg" + (err ? " err" : "");
+}
+function fmtTime(iso) {
+  const date = new Date(iso);
+  return isNaN(date) ? "--" : date.toLocaleString("vi-VN");
+}
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+function updateControls() {
+  const connectionReason = !activeConfig ? "Nhập Username, AIO Key rồi bấm Kết nối ở phần cài đặt phía trên." :
+    !connected ? "Chưa kết nối được Adafruit IO. Xem thông báo kết nối ở đầu trang." :
+    busy ? "Đang gửi lệnh, vui lòng chờ." : "";
+  const closeReason = connectionReason || (!commandAvailable ? "Tạo feed có key valve-command trên Adafruit IO để dùng nút đóng/mở van." : "");
+  const openReason = closeReason || (lastStatus === "DANGER" ? "Gas đang DANGER, không cho mở van." :
+    !sensorHealthy || !isFresh(lastSensor) ? "Chờ số đo mới từ trạm 1 (SAFE hoặc WARNING) để mở van." : "");
+  const resetReason = connectionReason || (!resetAvailable ? "Tạo feed có key system-reset trên Adafruit IO để dùng RESET." :
+    Date.now() < resetCooldownUntil ? "Đợi đủ 10 giây giữa hai lần RESET." : "");
+  for (const [id, reason] of [["btnClose", closeReason], ["btnOpen", openReason], ["btnReset", resetReason]]) {
+    $(id).disabled = Boolean(reason);
+    $(id).title = reason;
+  }
+  $("controlHint").textContent = connectionReason || [
+    closeReason ? "Đóng: " + closeReason : "Đóng: sẵn sàng.",
+    openReason ? "Mở: " + openReason : "Mở: sẵn sàng.",
+    resetReason ? "RESET: " + resetReason : "RESET: sẵn sàng."
+  ].join(" ");
+}
+function renderDataState() {
+  if (!activeConfig) {
+    $("dataState").textContent = lastSensor ?
+      "Đã ngắt lấy dữ liệu. Đang giữ số đo cuối, không phải trạng thái trực tiếp." : "Chưa nhận dữ liệu trạm 1.";
+  } else if (!lastSensor) {
+    $("dataState").textContent = "Đang chờ số đo hợp lệ từ trạm 1.";
+  } else if (!sensorHealthy) {
+    $("dataState").textContent = "Chưa đọc được số đo mới. Giữ mức cuối: " + lastStatus + ". Nút mở van đang khóa.";
+  } else if (!isFresh(lastSensor)) {
+    $("dataState").textContent = "Dữ liệu trạm 1 đã cũ (NO DATA). Giữ mức gas cuối: " +
+      lastStatus + ". Trạm 3 giữ nguyên servo/quạt đến khi nhận ADC mới.";
+  } else {
+    $("dataState").textContent = "Số đo trạm 1 còn mới. Dashboard cập nhật mỗi 5 giây.";
+  }
+  updateControls();
+}
+function renderGauge(value) {
+  const fraction = value / 4095;
+  const color = { SAFE: "--safe", WARNING: "--warn", DANGER: "--danger" }[getStatus(value)];
+  $("gaugeArc").setAttribute("stroke-dasharray", fraction * 251.3 + " 251.3");
+  $("gaugeArc").setAttribute("stroke", cssVar(color));
+  $("gaugeText").textContent = value;
+}
+function renderChart() {
+  const canvas = $("chart"), dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!w || !h) return;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  const g = canvas.getContext("2d");
+  g.scale(dpr, dpr);
+  g.clearRect(0, 0, w, h);
+  const pad = { l: 40, r: 10, t: 10, b: 20 };
+  const pw = w - pad.l - pad.r, ph = h - pad.t - pad.b;
+  const y = value => pad.t + ph - value / 4095 * ph;
+  g.font = "11px system-ui";
+  g.fillStyle = cssVar("--muted");
+  g.strokeStyle = cssVar("--line");
+  [0, 1000, 2000, 3000, 4000].forEach(t => {
+    g.beginPath(); g.moveTo(pad.l, y(t)); g.lineTo(w - pad.r, y(t)); g.stroke();
+    g.fillText(t, 4, y(t) + 4);
+  });
+  [[THRESHOLD_WARNING, "--warn"], [THRESHOLD_DANGER, "--danger"]].forEach(([t, color]) => {
+    g.strokeStyle = cssVar(color); g.setLineDash([5, 4]);
+    g.beginPath(); g.moveTo(pad.l, y(t)); g.lineTo(w - pad.r, y(t)); g.stroke();
+  });
+  g.setLineDash([]);
+  if (history.length < 2) {
+    g.fillText("Chưa đủ dữ liệu", pad.l + 10, pad.t + 20);
+    return;
+  }
+  g.strokeStyle = cssVar("--accent"); g.lineWidth = 2; g.beginPath();
+  history.forEach((value, i) => {
+    const x = pad.l + i / (history.length - 1) * pw;
+    i ? g.lineTo(x, y(value)) : g.moveTo(x, y(value));
+  });
+  g.stroke();
+}
+function renderLog(points) {
+  logRows = [];
+  let previous = null;
+  for (const point of [...points].reverse()) {
+    const status = getStatus(point.adc);
+    if (status !== previous) {
+      logRows.unshift({ time: fmtTime(point.created_at), status, value: point.adc });
+      previous = status;
+    }
+  }
+  $("log").innerHTML = logRows.slice(0, 20).map(row =>
+    '<tr><td>' + row.time + '</td><td><span class="badge ' + row.status +
+    '" style="font-size:12px;padding:3px 10px">' + row.status +
+    '</span></td><td>' + row.value + '</td></tr>'
+  ).join("") || '<tr><td colspan="3">Chưa có dữ liệu</td></tr>';
+}
+function acceptSensor(records) {
+  if (!Array.isArray(records)) throw new Error("Dữ liệu sensor-data không hợp lệ.");
+  if (!records.length) {
+    lastSensor = null; lastStatus = null; history = [];
+    $("status").textContent = "WAIT"; $("status").className = "badge";
+    $("gaugeText").textContent = "--";
+    $("gaugeArc").setAttribute("stroke-dasharray", "0 251.3");
+    $("lastUpdate").textContent = "Chưa có số đo.";
+    $("banner").classList.toggle("show", false);
+    renderLog([]); renderChart();
+    return;
+  }
+  if (parseADC(records[0].value) === null) throw new Error("ADC mới nhất không hợp lệ (cần số nguyên 0–4095).");
+  const points = records.map(point => ({ ...point, adc: parseADC(point.value) }))
+    .filter(point => point.adc !== null);
+  lastSensor = points[0];
+  lastStatus = getStatus(lastSensor.adc);
+  history = points.map(point => point.adc).reverse();
+  renderGauge(lastSensor.adc);
+  $("lastUpdate").textContent = "Số đo lúc: " + fmtTime(lastSensor.created_at);
+  $("status").textContent = lastStatus;
+  $("status").className = "badge " + lastStatus;
+  $("banner").classList.toggle("show", lastStatus === "DANGER");
+  renderLog(points);
+  renderChart();
+}
+function acceptValve(records) {
+  const point = Array.isArray(records) ? records[0] : null;
+  const value = point ? String(point.value).trim().toUpperCase() : "";
+  $("valve").textContent = value === "CLOSED" ? "ĐÓNG (90°)" : value === "OPEN" ? "MỞ (0°)" : "--";
+  $("valveUpdate").textContent = point ? "Phản hồi gần nhất: " + fmtTime(point.created_at) +
+    ". Không phải tín hiệu xác nhận trạm 3 đang trực tuyến." : "Chưa có phản hồi trạm 3.";
+}
+function acceptReset(records) {
+  const point = Array.isArray(records) ? records.find(item =>
+    String(item.value).trim().toUpperCase() === "RESET") : null;
+  $("resetUpdate").textContent = point ? "Lệnh RESET gần nhất: " + fmtTime(point.created_at) +
+    ". Xem log các trạm để xác nhận khởi động lại." : "Chưa có lệnh RESET.";
+}
+async function refresh(expectedSession = session) {
+  if (!activeConfig || expectedSession !== session || refreshingSession === expectedSession) return;
+  refreshingSession = expectedSession;
+  const cfg = activeConfig;
+  try {
+    const results = await Promise.allSettled([
+      aio("/feeds/sensor-data/data?limit=30", {}, cfg),
+      aio("/feeds/control-valve/data?limit=1", {}, cfg),
+      aio("/feeds/system-reset/data?limit=5", {}, cfg),
+      aio("/feeds/valve-command/data?limit=1", {}, cfg)
+    ]);
+    if (expectedSession !== session) return;
+    const authFailure = results.find(result => result.status === "rejected" &&
+      [401, 403].includes(result.reason.status));
+    if (authFailure) throw authFailure.reason;
+    const notes = [];
+    sensorHealthy = false;
+    if (results[0].status === "fulfilled") {
+      try {
+        acceptSensor(results[0].value);
+        sensorHealthy = true;
+      } catch (error) { notes.push(error.message); }
+    } else {
+      notes.push(results[0].reason.name === "AbortError" ? "Lấy số đo quá thời gian" : results[0].reason.message);
+    }
+    if (results[1].status === "fulfilled") acceptValve(results[1].value);
+    else {
+      $("valveUpdate").textContent = results[1].reason.message;
+      notes.push("chưa đọc được phản hồi van");
+    }
+    resetAvailable = results[2].status === "fulfilled";
+    if (resetAvailable) acceptReset(results[2].value);
+    else {
+      $("resetUpdate").textContent = results[2].reason.message;
+      notes.push("chưa đọc được feed RESET");
+    }
+    commandAvailable = results[3].status === "fulfilled";
+    $("commandState").textContent = commandAvailable ?
+      "Điều khiển van đã sẵn sàng. Dùng cùng trạm 3 phiên bản v6." :
+      results[3].reason.message + " Tạo feed có key valve-command trên Adafruit IO và chạy trạm 3 v6.";
+    if (!commandAvailable) notes.push("chưa có kết nối điều khiển van");
+    const apiAvailable = results.some(result => result.status === "fulfilled");
+    setConn(apiAvailable, (apiAvailable ? "Đã kết nối Adafruit IO" : "Chưa kết nối được Adafruit IO") +
+      (notes.length ? " • " + notes.join("; ") : ""));
+  } catch (error) {
+    if (expectedSession === session) {
+      sensorHealthy = false;
+      setConn(false, error.name === "AbortError" ? "Yêu cầu quá thời gian. Đang thử lại." : error.message);
+    }
+  } finally {
+    if (refreshingSession === expectedSession) refreshingSession = null;
+    if (expectedSession === session && activeConfig) {
+      renderDataState();
+      clearTimeout(timer);
+      timer = setTimeout(() => refresh(expectedSession), POLL_MS);
+    }
+  }
+}
+function start() {
+  stop();
+  const user = $("user").value.trim(), key = $("key").value.trim();
+  if (!user || !key) { setConn(false, "Nhập Username và AIO Key."); return; }
+  saveCfg();
+  sessionAbort = new AbortController();
+  activeConfig = { user, key, signal: sessionAbort.signal };
+  lastSensor = null; lastStatus = null; history = []; resetAvailable = false; commandAvailable = false; sensorHealthy = false;
+  acceptSensor([]); acceptValve([]); acceptReset([]);
+  setConn(false, "Đang kết nối...");
+  $("settings").open = false;
+  refresh(session);
+}
+function stop() {
+  session++;
+  clearTimeout(timer);
+  if (sessionAbort) sessionAbort.abort();
+  activeConfig = null; sessionAbort = null; busy = false;
+  commandAvailable = false;
+  sensorHealthy = false;
+  $("commandState").textContent = "Kết nối để sử dụng nút đóng/mở van.";
+  setConn(false, "Đã ngắt kết nối");
+  renderDataState();
+}
+async function send(button, feed, value, success) {
+  if (button.disabled || !connected || !activeConfig || busy) return false;
+  const expectedSession = session, cfg = activeConfig;
+  busy = true; updateControls(); say("Đang gửi...");
+  try {
+    await publish(feed, value, cfg);
+    if (expectedSession !== session) return false;
+    say(success);
+    if (feed === "system-reset") resetCooldownUntil = Date.now() + 10000;
+    return true;
+  } catch (error) {
+    if (expectedSession === session) say(
+      error.name === "AbortError" ? "Chưa xác nhận được việc gửi. Kiểm tra log trước khi gửi lại." : error.message, true);
+    return false;
+  } finally {
+    if (expectedSession === session) {
+      busy = false;
+      updateControls();
+    }
+  }
+}
+$("btnConnect").onclick = start;
+$("btnDisconnect").onclick = stop;
+$("btnClose").onclick = event => send(event.currentTarget, "valve-command", "CLOSE",
+  "Đã gửi yêu cầu đóng van và giữ 90°. Chờ phản hồi trạm 3; bấm Mở van để bỏ giữ đóng khi gas cho phép.");
+$("btnOpen").onclick = event => {
+  renderDataState();
+  return send(event.currentTarget, "valve-command", "OPEN",
+    "Đã gửi yêu cầu mở van 0° và bỏ giữ đóng. Trạm 3 chỉ mở khi dữ liệu còn mới và gas chưa ở DANGER.");
+};
+$("btnReset").onclick = async event => {
+  if ($("btnReset").disabled || !confirm("Khởi động lại trạm 1–3 đang kết nối? Sau đó hệ thống tiếp tục đo gas; DANGER vẫn kích hoạt cảnh báo.")) return;
+  await send(event.currentTarget, "system-reset", "RESET",
+    "Đã gửi RESET giống nút trạm 4. Kiểm tra log trạm 1–3 để xác nhận khởi động lại.");
+};
+window.addEventListener("resize", renderChart);
+loadCfg();
+renderChart();
+renderDataState();
+setInterval(renderDataState, 1000);
+
+</script>
+</body>
+</html>
