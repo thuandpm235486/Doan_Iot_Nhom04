@@ -1,0 +1,10 @@
+{
+  "name": "MQ-2 propane model + conditioner (educational)",
+  "author": "Nhom04 - approximate Winsen MQ-2 Fig.5, not hardware calibration",
+  "pins": ["GND", "", "VCC", "HEALTH", "READY", "AOUT"],
+  "controls": [
+    {"id":"gasPpm","label":"Propane input (ppm, simulated)","type":"range","min":300,"max":10000,"step":10},
+    {"id":"faultMode","label":"Fault: 0 OK, 1 heater, 2 open, 3 short","type":"range","min":0,"max":3,"step":1},
+    {"id":"warmupSeconds","label":"Demo warmup seconds (not real preheat)","type":"range","min":1,"max":30,"step":1}
+  ]
+}

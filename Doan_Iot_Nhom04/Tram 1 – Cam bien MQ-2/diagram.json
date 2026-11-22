@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "author": "Nhom04 - MQ2 propane model, separated signal and power routes",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-devkit-c-v4",
+      "id": "esp",
+      "top": -9.6,
+      "left": -4.76,
+      "attrs": { "env": "micropython-20231227-v1.22.0" }
+    },
+    { "type": "wokwi-breadboard-half", "id": "bb1", "top": -3, "left": 185.2, "attrs": {} },
+    {
+      "type": "chip-mq2-propane",
+      "id": "gas1",
+      "top": -123.78,
+      "left": 216,
+      "attrs": { "gasPpm": "400", "faultMode": "0", "warmupSeconds": "5" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led1",
+      "top": -138,
+      "left": 435.8,
+      "attrs": { "color": "red", "label": "Bao dong" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r2",
+      "top": 89.8,
+      "left": 431.15,
+      "rotate": 270,
+      "attrs": { "value": "220" }
+    }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+    [ "esp:GND.2", "bb1:tn.1", "black", [ "h28.8", "h89.64" ] ],
+    [ "esp:5V", "bb1:tp.1", "red", [ "h-28.65", "v-211.2" ] ],
+    [ "bb1:tp.4", "gas1:VCC", "red", [ "v-86.1", "h-36.8", "v-19.2" ] ],
+    [ "bb1:tn.3", "gas1:GND", "black", [ "v-86.5", "h-36.8", "v-48" ] ],
+    [ "esp:33", "bb1:14t.e", "magenta", [ "h0" ] ],
+    [ "bb1:14t.a", "gas1:HEALTH", "magenta", [ "v0" ] ],
+    [ "esp:32", "bb1:16t.e", "blue", [ "h-9.45", "v28.8", "h355.2" ] ],
+    [ "bb1:16t.a", "gas1:READY", "blue", [ "v0" ] ],
+    [ "esp:34", "bb1:18b.g", "green", [ "h-19.05", "v67.2" ] ],
+    [ "bb1:18b.f", "bb1:18t.e", "green", [ "v0" ] ],
+    [ "bb1:18t.a", "gas1:AOUT", "green", [ "v0" ] ],
+    [ "r2:1", "bb1:27b.g", "", [ "$bb" ] ],
+    [ "r2:2", "bb1:27t.c", "", [ "$bb" ] ],
+    [ "led1:A", "bb1:27t.a", "gold", [ "v0" ] ],
+    [ "led1:C", "bb1:tn.21", "black", [ "v0" ] ],
+    [ "esp:2", "bb1:27b.j", "gold", [ "h0" ] ]
+  ],
+  "dependencies": {}
+}

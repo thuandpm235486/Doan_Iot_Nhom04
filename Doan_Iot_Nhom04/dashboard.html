@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mô phỏng giám sát LPG – Nhóm 04</title>
+<style>
+:root{color-scheme:light dark;--bg:#11151b;--card:#1b212a;--text:#e8ecf1;--muted:#a5b0bf;--line:#354151;--safe:#258357;--danger:#ce3939;--warn:#e6ad29}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px system-ui,sans-serif}header{padding:20px;border-bottom:1px solid var(--line)}h1{font-size:22px;margin:0 0 8px}main{max-width:1050px;margin:auto;padding:20px;display:grid;gap:16px}.card,details{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}.grid,.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}h2,summary{font-size:16px;margin:0 0 12px}label{display:grid;gap:6px;color:var(--muted)}input{width:100%;padding:10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--text);font:inherit}.controls{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}button{padding:12px 16px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text);font:inherit;font-weight:600;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}button:focus-visible,input:focus-visible{outline:3px solid #8db8ff;outline-offset:2px}.danger{background:var(--danger)}.safe{background:var(--safe)}.reset{background:var(--warn);color:#171717}.sub{font-size:13px;color:var(--muted);line-height:1.6;margin-top:8px}.big{font-size:30px;font-weight:700}.badge{display:inline-block;padding:6px 10px;border-radius:8px;background:#535e6c}.badge.NORMAL{background:var(--safe)}.badge.ALARM,.banner{background:var(--danger)}.banner{padding:16px;border-radius:8px;font-weight:700}.banner[hidden]{display:none}.msg{line-height:1.6}.err{color:#ff9393}canvas{width:100%;height:240px;display:block}table{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:left;padding:10px 5px;border-bottom:1px solid var(--line)}progress{width:100%;height:20px;accent-color:var(--safe)}.table-wrap{overflow:auto}
+</style>
+</head>
+<body>
+<header><h1>Mô phỏng giám sát rò rỉ LPG – propane tham chiếu</h1><div id="connText" role="status">Chưa kết nối Adafruit IO</div></header>
+<main>
+<details id="settings" open><summary>Kết nối Adafruit IO</summary>
+<div class="form"><label>Username<input id="user" autocomplete="off"></label><label>AIO Key<input id="key" type="password" autocomplete="off"></label><label>Ngưỡng đề xuất cho propane<input value="2.100 ppm = 10% LEL" readonly></label></div>
+<div class="controls"><button id="btnConnect" class="safe">Kết nối</button><button id="btnDisconnect">Ngắt kết nối</button></div>
+<div class="sub">Chỉ nhớ username; key giữ trong bộ nhớ tab. Các feed: sensor-data, alert-status, control-valve, valve-command, system-reset, alarm-events. Mỗi trạm chỉ chạy một bản để tránh trùng client MQTT.</div></details>
+<div class="banner" id="banner" role="alert" hidden></div>
+<div id="dataState" class="msg" aria-live="polite">Chưa nhận dữ liệu trạm 1.</div>
+<div class="grid">
+<section class="card"><h2>Propane ước tính trong mô phỏng</h2><div class="big" id="ppm">— ppm</div><progress id="gauge" max="10000" value="0" aria-label="Nồng độ propane mô phỏng"></progress><div id="bounds" class="sub">Dải mô hình: 300–10.000 ppm</div><div class="sub" id="lastUpdate">Chưa có số đo mới</div></section>
+<section class="card"><h2>Trạng thái khí</h2><span id="status" class="badge">WAIT</span><div id="lel" class="big">— %LEL</div><div class="sub">Báo động khi cận trên của mô hình ≥ 2.100 ppm. “NORMAL” chỉ nghĩa là chưa chạm điều kiện báo động của mô hình.</div></section>
+<section class="card"><h2>Phản hồi trạm 3</h2><div class="big" id="valve">Chưa rõ</div><div class="sub" id="valveUpdate">Chờ phản hồi mới.</div><div id="mode" class="sub">Chế độ: —</div><div id="lock" class="sub">Khóa sự cố: chưa rõ</div></section>
+</div>
+<section class="card"><h2>30 số đo gần nhất · ppm ước tính</h2><canvas id="chart" aria-label="Biểu đồ nồng độ mô phỏng"></canvas><div class="sub" id="modelInfo">MQ-2 theo đồ thị Winsen, mạch điều hòa lý tưởng. Chưa hiệu chuẩn cảm biến thật. Khoảng hiển thị chỉ xét giả định đọc đồ thị và lượng tử ADC, chưa gồm sai số cảm biến thật.</div></section>
+<section class="card"><h2>Điều khiển từ xa</h2><div class="controls">
+<button id="btnClose" class="danger" disabled>Đóng van gas</button><button id="btnAck" disabled>Đã kiểm tra</button><button id="btnOpen" class="safe" disabled>Mở van gas</button><button id="btnHome" disabled>Ở nhà</button><button id="btnAway" disabled>Đi vắng</button><button id="btnReset" class="reset" disabled>Khởi động lại trạm 1–3</button>
+</div><div id="controlHint" class="msg" aria-live="polite">Kết nối để sử dụng.</div><div id="msg" class="msg" aria-live="polite"></div><div id="commandState" class="sub"></div><div class="sub">Sau khởi động hoặc sự cố: số đo mới dưới ngưỡng → Ở nhà → Đã kiểm tra → Mở van. Đã kiểm tra không tự mở van. Reset giữ van đóng, không xóa khóa sự cố. Phản hồi có thể trễ khoảng 10–20 giây; dòng “đã gửi” chưa chứng minh trạm đã thực hiện.</div></section>
+<section class="card"><h2>Sự kiện trạm 3 lưu trên Adafruit IO</h2><div class="sub">Thời gian bên dưới là lúc cloud nhận sự kiện. Hàng đợi thiết bị tối đa 8 sự kiện; mất mạng có thể làm thiếu lịch sử.</div><div class="table-wrap"><table><thead><tr><th>Thời gian nhận</th><th>Sự kiện</th><th>ppm mô hình</th><th>Chế độ</th></tr></thead><tbody id="log"></tbody></table></div></section>
+</main>
+<script>
+"use strict";
+const API = "https://io.adafruit.com/api/v2/";
+const MODEL = "mq2-propane-winsen15-fig5-v1", PROFILE = "propane-reference-v1";
+const ALARM_PPM = 2100, LEL_PPM = 21000, DATA_TIMEOUT_MS = 20000, STATE_TIMEOUT_MS = 30000;
+const POLL_MS = 5000, $ = id => document.getElementById(id);
+let active = null, generation = 0, timer = null, clockTimer = null, refreshing = false;
+let apiOK = false, available = {}, sensor = null, actor = null, chartPoints = [], eventRows = [];
+let busy = false, resetUntil = 0, stateAfter = 0, retainedAlarm = false;
+const finite = v => typeof v === "number" && Number.isFinite(v);
+function fresh(record, timeout, now=Date.now()) {
+  const age = record ? now - Date.parse(record.created_at) : NaN;
+  return Number.isFinite(age) && age >= -5000 && age < timeout;
+}
+function parseSensor(record) {
+  try {
+    const d = JSON.parse(record.value);
+    if (!d || d.schema !== 3 || d.profile_id !== PROFILE || d.model_id !== MODEL ||
+        d.source !== "CUSTOM_DATASHEET_SIMULATION" || d.model_validated !== true ||
+        d.hardware_calibrated !== false || typeof d.boot_id !== "string" || !d.boot_id.length ||
+        d.boot_id.length > 32 || !Number.isSafeInteger(d.seq) || d.seq < 0 ||
+        !["OK","WARMUP","SENSOR_FAULT","MODEL_UNVERIFIED","BELOW_RANGE","OVER_RANGE"].includes(d.sensor_state)) return null;
+    if (d.sensor_state === "OK" && (d.adc_quality !== "OK" ||
+        ![d.ppm_low,d.ppm_estimated,d.ppm_high].every(finite) ||
+        !(300 <= d.ppm_low && d.ppm_low <= d.ppm_estimated && d.ppm_estimated <= d.ppm_high && d.ppm_high <= 10000))) return null;
+    return {...record, data:d};
+  } catch (_) { return null; }
+}
+function parseActor(record) {
+  try {
+    const d = JSON.parse(record.value);
+    if (!d || d.schema !== 3 || !["HOME","AWAY"].includes(d.mode) ||
+        !["OPEN","CLOSED"].includes(d.valve) || d.servo_angle !== (d.valve === "OPEN" ? 0 : 90) ||
+        !["alarm_on","inspection_required","state_fault","sensor_fault","last_command_ok"].every(k=>typeof d[k]==="boolean") ||
+        typeof d.sensor_boot_id !== "string" || !Number.isSafeInteger(d.sensor_seq) || d.sensor_seq < 0 ||
+        !finite(d.sensor_age_ms) || d.sensor_age_ms < 0 || typeof d.gas_state !== "string") return null;
+    return {...record,data:d};
+  } catch (_) { return null; }
+}
+function gasState(now=Date.now()) {
+  if (!active || !apiOK) return "OFFLINE";
+  if (!sensor) return "UNSUPPORTED / WAIT";
+  if (!fresh(sensor,DATA_TIMEOUT_MS,now)) return "NO DATA";
+  if (sensor.data.sensor_state !== "OK") return sensor.data.sensor_state;
+  return sensor.data.ppm_high >= ALARM_PPM ? "ALARM" : "NORMAL";
+}
+function actorFresh(now=Date.now()) {
+  if (!actor || !sensor || !fresh(actor,STATE_TIMEOUT_MS,now) || Date.parse(actor.created_at)<=stateAfter) return false;
+  const d=actor.data, elapsed=Math.max(0,now-Date.parse(actor.created_at));
+  return d.sensor_boot_id === sensor.data.boot_id && d.sensor_age_ms + elapsed < DATA_TIMEOUT_MS;
+}
+function canAcknowledge(now=Date.now()) {
+  return gasState(now)==="NORMAL" && actorFresh(now) && actor.data.gas_state==="NORMAL" &&
+    actor.data.mode==="HOME" && !actor.data.state_fault && !actor.data.sensor_fault;
+}
+function allowed(command,now=Date.now()) {
+  if (!active || !apiOK || busy) return false;
+  if (command==="RESET") return !!available["system-reset"] && now>=resetUntil;
+  if (!available["valve-command"]) return false;
+  if (command==="ACK") return canAcknowledge(now);
+  if (command==="OPEN") return canAcknowledge(now) && !actor.data.alarm_on && !actor.data.inspection_required;
+  return ["CLOSE","HOME","AWAY"].includes(command);
+}
+function render(now=Date.now()) {
+  const state=gasState(now), valid=state==="NORMAL" || state==="ALARM";
+  $("status").textContent=state; $("status").className="badge "+(valid?state:"");
+  $("ppm").textContent=valid?Math.round(sensor.data.ppm_estimated).toLocaleString("vi-VN")+" ppm":"— ppm";
+  $("gauge").value=valid?sensor.data.ppm_estimated:0;
+  $("lel").textContent=valid?(sensor.data.ppm_estimated*100/LEL_PPM).toFixed(2)+" %LEL":"— %LEL";
+  $("bounds").textContent=valid?`Khoảng mô hình: ${sensor.data.ppm_low}–${sensor.data.ppm_high} ppm; chưa gồm sai số cảm biến thật.`:"Dải mô hình: 300–10.000 ppm; ngoài dải không kết luận NORMAL.";
+  $("lastUpdate").textContent=sensor?"Cloud nhận số đo: "+new Date(sensor.created_at).toLocaleString("vi-VN"):"Chưa có bản tin schema 3 hợp lệ.";
+  $("dataState").textContent=state==="NO DATA"?"Trạm 1 không có số đo mới trong 20 giây. Van phải giữ đóng.":
+    valid?"Nguồn: mô phỏng MQ-2/propane theo đồ thị hãng; chưa hiệu chuẩn phần cứng.":"Trạng thái số đo: "+state+". Chưa cho phép mở van.";
+  const a=actorFresh(now), d=actor?.data;
+  $("valve").textContent=a?(d.valve==="CLOSED"?"ĐÓNG · 90°":"MỞ · 0°"):"Chưa rõ / mất phản hồi";
+  $("valveUpdate").textContent=actor?"Phản hồi cloud: "+new Date(actor.created_at).toLocaleTimeString("vi-VN")+(a?"":" · đã cũ hoặc chưa đồng bộ trạm 1"):"Chờ bản tin trạng thái schema 3 từ trạm 3.";
+  $("mode").textContent="Chế độ: "+(a?(d.mode==="HOME"?"Ở nhà":"Đi vắng"):"—");
+  $("lock").textContent=!a?"Chưa xác định khóa sự cố.":d.state_fault?"Lỗi lưu trạng thái: khóa mở van.":d.alarm_on?"Đang giữ khóa báo động; gas giảm vẫn chưa mở van.":d.inspection_required?"Cần xác nhận đã kiểm tra trước khi mở.":"Không có yêu cầu kiểm tra đang chờ.";
+  const latched=!!d?.alarm_on || retainedAlarm;
+  $("banner").hidden=state!=="ALARM" && !latched;
+  $("banner").textContent=state==="ALARM"?"BÁO ĐỘNG MÔ PHỎNG: cận trên nồng độ chạm ngưỡng. Kiểm tra phản hồi van đóng.":
+    a?"SỰ CỐ ĐANG ĐƯỢC GIỮ: van chưa được phép mở lại cho đến khi xác nhận kiểm tra.":"Phản hồi cuối còn khóa báo động; hiện chưa có phản hồi mới để xác nhận.";
+  for(const [id,cmd] of [["btnClose","CLOSE"],["btnOpen","OPEN"],["btnAck","ACK"],["btnHome","HOME"],["btnAway","AWAY"],["btnReset","RESET"]]) $(id).disabled=!allowed(cmd,now);
+  $("controlHint").textContent=!active?"Nhập username và AIO Key rồi bấm Kết nối.":!apiOK?"Chưa truy cập được API. Kiểm tra kết nối hoặc thông báo lỗi.":!available["valve-command"]?"Chưa truy cập được feed valve-command: tạo đúng feed key này rồi đợi cập nhật.":
+    !canAcknowledge(now)?"Đóng van / chọn chế độ có thể gửi. Mở và xác nhận cần số đo mới dưới ngưỡng, phản hồi trạm 3 mới, chế độ Ở nhà, không lỗi cảm biến hoặc lưu trạng thái.":d.alarm_on || d.inspection_required?"Bấm Đã kiểm tra sau khi kiểm tra tình huống mô phỏng; đợi trạm 3 phản hồi rồi mới bấm Mở van.":"Có thể gửi Mở van. Trạm 3 sẽ kiểm tra lại điều kiện trước khi thực hiện.";
+  if(a) $("commandState").textContent=`Trạm 3 xử lý gần nhất: ${d.last_command || "—"} · ${d.last_command_ok?"đã chấp nhận":"chưa chấp nhận"}`;
+}
+async function aio(feed,opts={},cfg=active) {
+  if(!cfg) throw new Error("Chưa kết nối");
+  const c=new AbortController(), abort=()=>c.abort();
+  if(cfg.abort.signal.aborted) c.abort(); else cfg.abort.signal.addEventListener("abort",abort,{once:true});
+  const timeout=setTimeout(()=>c.abort(),10000);
+  try {
+    const response=await fetch(API+encodeURIComponent(cfg.user)+"/feeds/"+feed+"/data"+(opts.method?"":"?limit="+(feed==="sensor-data"?30:feed==="alarm-events"?20:1)),
+      {...opts,signal:c.signal,cache:"no-store",headers:{"X-AIO-Key":cfg.key,"Content-Type":"application/json"}});
+    if(!response.ok) {
+      const e=new Error(response.status===404?"Chưa có feed "+feed:response.status===401||response.status===403?"Sai username hoặc AIO Key":response.status===429?"Đang giới hạn tốc độ; chờ rồi thử lại":"Lỗi HTTP "+response.status);
+      e.status=response.status; throw e;
+    }
+    return await response.json();
+  } finally {clearTimeout(timeout);cfg.abort.signal.removeEventListener("abort",abort);}
+}
+function drawChart() {
+  const canvas=$("chart"), ctx=canvas.getContext("2d"); if(!ctx) return;
+  const w=canvas.clientWidth||800,h=240,dpr=window.devicePixelRatio||1;
+  canvas.width=w*dpr;canvas.height=h*dpr;ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);
+  ctx.font="12px system-ui";ctx.fillStyle="#a5b0bf";
+  for(const value of [0,2100,5000,10000]) {const y=h-25-value/10000*(h-45);ctx.strokeStyle=value===2100?"#e6ad29":"#354151";ctx.beginPath();ctx.moveTo(48,y);ctx.lineTo(w-10,y);ctx.stroke();ctx.fillText(String(value),2,y+4);}
+  if(!chartPoints.length) return;
+  const start=Date.parse(chartPoints[0].created_at),end=Date.parse(chartPoints[chartPoints.length-1].created_at);
+  ctx.strokeStyle="#8db8ff";ctx.lineWidth=2;ctx.beginPath();let previous=null;
+  for(const p of chartPoints) {const t=Date.parse(p.created_at),x=48+(t-start)/Math.max(1,end-start)*(w-65),y=h-25-p.data.ppm_estimated/10000*(h-45);
+    if(previous===null || t-previous>=DATA_TIMEOUT_MS) ctx.moveTo(x,y);else ctx.lineTo(x,y);previous=t;}
+  ctx.stroke();ctx.fillText("Số đo mới nhất →",Math.max(50,w-140),h-5);
+}
+function renderEvents(records) {
+  const body=$("log");body.replaceChildren();
+  for(const r of records) {let e;try{e=JSON.parse(r.value);}catch(_){continue;}
+    if(!e || typeof e.event!=="string")continue;
+    const row=document.createElement("tr");
+    for(const text of [new Date(r.created_at).toLocaleString("vi-VN"),e.event,finite(e.ppm)?String(e.ppm):"—",e.mode||"—"]) {const cell=document.createElement("td");cell.textContent=text;row.appendChild(cell);}body.appendChild(row);
+  }
+  if(!body.children.length) {const row=document.createElement("tr"),cell=document.createElement("td");cell.colSpan=4;cell.textContent=available["alarm-events"]?"Chưa có sự kiện.":"Chưa đọc được feed alarm-events. Tạo feed này để lưu sự kiện.";row.appendChild(cell);body.appendChild(row);}
+}
+async function refresh() {
+  if(!active || refreshing) return;
+  const cfg=active,stamp=generation;refreshing=true;
+  const feeds=["sensor-data","control-valve","system-reset","valve-command","alarm-events"];
+  try {
+    const results=await Promise.allSettled(feeds.map(f=>aio(f,{},cfg)));
+    if(stamp!==generation)return;
+    const authFailure=results.some(r=>r.status==="rejected" && [401,403].includes(r.reason.status));
+    apiOK=!authFailure && results.some(r=>r.status==="fulfilled");
+    for(let i=0;i<feeds.length;i++)available[feeds[i]]=results[i].status==="fulfilled";
+    const read=i=>results[i].status==="fulfilled" && Array.isArray(results[i].value)?results[i].value:[];
+    const raw=read(0);sensor=raw.length?parseSensor(raw[0]):null;
+    actor=read(1).length?parseActor(read(1)[0]):null;
+    if(actor && fresh(actor,STATE_TIMEOUT_MS) && Date.parse(actor.created_at)>stateAfter)retainedAlarm=actor.data.alarm_on;
+    chartPoints=raw.map(parseSensor).filter(p=>p && p.data.sensor_state==="OK" && Number.isFinite(Date.parse(p.created_at))).reverse();
+    eventRows=read(4);renderEvents(eventRows);drawChart();
+    $("connText").textContent=apiOK?"Adafruit IO truy cập được · trạng thái từng trạm hiển thị bên dưới":authFailure?"Sai username hoặc AIO Key":"Chưa truy cập được Adafruit IO";
+    const issues=results.flatMap((r,i)=>r.status==="rejected"?[feeds[i]+": "+r.reason.message]:[]);
+    $("msg").textContent=issues.join(" · ");$("msg").className=issues.length?"msg err":"msg";
+    render();
+  } finally {if(stamp===generation)refreshing=false;}
+}
+async function send(command) {
+  if(!allowed(command)) {$("msg").textContent="Chưa đủ điều kiện gửi "+command+". Xem hướng dẫn phía trên.";render();return;}
+  const cfg=active,stamp=generation;busy=true;render();
+  try {
+    await aio(command==="RESET"?"system-reset":"valve-command",{method:"POST",body:JSON.stringify({value:command})},cfg);
+    if(stamp!==generation)return;
+    if(command==="RESET")resetUntil=Date.now()+10000;
+    // Require a later authoritative response before enabling another open/ACK.
+    if(["ACK","CLOSE","AWAY","HOME","RESET"].includes(command)){actor=null;stateAfter=Date.now();}
+    $("msg").textContent="Đã gửi "+command+" lên cloud. Chờ phản hồi trạm 3; chưa xác nhận thao tác hoàn tất.";$("msg").className="msg";
+  } catch(e) {if(stamp===generation){$("msg").textContent="Gửi không thành công: "+e.message;$("msg").className="msg err";}}
+  finally {if(stamp===generation){busy=false;render();}}
+}
+function stop() {
+  generation++;active?.abort.abort();active=null;
+  clearInterval(timer);clearInterval(clockTimer);timer=clockTimer=null;
+  refreshing=false;apiOK=false;busy=false;available={};sensor=actor=null;chartPoints=[];eventRows=[];stateAfter=0;retainedAlarm=false;
+  $("connText").textContent="Đã ngắt kết nối";$("commandState").textContent="";render();renderEvents([]);drawChart();
+}
+function connect() {
+  const user=$("user").value.trim(),key=$("key").value.trim();stop();
+  if(!user || !key){$("msg").textContent="Nhập đủ username và AIO Key.";return;}
+  try{localStorage.setItem("gas_user",user);}catch(_){}
+  active={user,key,abort:new AbortController()};$("connText").textContent="Đang kết nối…";
+  refresh();timer=setInterval(refresh,POLL_MS);clockTimer=setInterval(render,1000);
+}
+$("btnConnect").onclick=connect;$("btnDisconnect").onclick=stop;
+for(const [id,command] of [["btnClose","CLOSE"],["btnOpen","OPEN"],["btnAck","ACK"],["btnHome","HOME"],["btnAway","AWAY"],["btnReset","RESET"]])$(id).onclick=()=>send(command);
+window.addEventListener("resize",drawChart);
+try{$("user").value=localStorage.getItem("gas_user")||"";localStorage.removeItem("gas_key");}catch(_){}
+render();renderEvents([]);drawChart();
+</script>
+</body>
+</html>
